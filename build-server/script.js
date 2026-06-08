@@ -1,20 +1,19 @@
-import {path} from 'path'
+import { exec } from 'child_process'
+import path from 'path'
+import fs from 'fs'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
-import {fs} from 'fs'
-import {exec} from 'child_process'
-import {mime} from 'mime-types'
-import {Redis} from 'ioredis'
+import mime from 'mime-types'
+import Redis from 'ioredis'
+import { fileURLToPath } from 'url'
 
+const publisher = new Redis('redis://default:gQAAAAAAATyuAAIgcDExYTZhNzg1OTVjNGQ0NDRhODUxODczNzgyYjAzMGIxOQ@genuine-ant-81070.upstash.io:6379')
 
-const publisher = new Redis('')
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 
 const s3Client = new S3Client({
     region: 'ap-south-2',
-    credentials: {
-        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
-    }
 })
 
 const PROJECT_ID = process.env.PROJECT_ID
@@ -27,9 +26,10 @@ function publishLog(log) {
 async function init() {
     console.log('Executing script.js')
     publishLog('Build Started...')
+    
     const outDirPath = path.join(__dirname, 'output')
 
-    const p = exec(`cd ${outDirPath} && bun install && bun run build`)
+    const p = exec(`cd ${outDirPath} && npm install && npm run build`)
 
     p.stdout.on('data', function (data) {
         console.log(data.toString())
