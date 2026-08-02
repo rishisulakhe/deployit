@@ -1,0 +1,21 @@
+{
+  "name": "vercel-clone",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "dashboard",
+    "api-server",
+    "orchestrator",
+    "build-agent",
+    "edge-proxy"
+  ],
+  "scripts": {
+    "build": "echo \"run service-level build scripts\" && exit 0",
+    "typecheck": "echo \"run service-level typecheck scripts\" && exit 0",
+    "dev:api": "bun --filter @vercel-clone/api-server dev",
+    "dev:orch": "bun --filter @vercel-clone/orchestrator dev",
+    "dev:proxy": "bun --filter @vercel-clone/edge-proxy dev",
+    "dev:dashboard": "bun --filter @vercel-clone/dashboard dev"
+  }
+}

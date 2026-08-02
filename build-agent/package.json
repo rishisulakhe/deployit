@@ -1,0 +1,17 @@
+{
+  "name": "@vercel-clone/build-agent",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1063.0",
+    "ioredis": "^5.11.1",
+    "mime-types": "^3.0.2"
+  }
+}

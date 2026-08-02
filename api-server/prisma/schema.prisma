@@ -1,0 +1,18 @@
+// Prisma schema for @vercel-clone/api-server
+// Full schema (User, Project, Deployment, EnvVar, BuildLog) is added in Phase 2.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+}

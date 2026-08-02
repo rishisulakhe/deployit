@@ -1,0 +1,33 @@
+# --- Node / Bun ---
+node_modules/
+bun.lock
+bun.lockb
+*.log
+.DS_Store
+
+# --- Build artifacts ---
+dist/
+build/
+generated/
+.next/
+.turbo/
+.cache/
+
+# --- Env files (per-service copies are also gitignored at the service level) ---
+.env
+.env.local
+.env.*.local
+
+# --- Infra state ---
+infra/terraform/.terraform/
+infra/terraform/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# --- Editor / OS ---
+.vscode/
+.idea/
+*.swp
+Thumbs.db
