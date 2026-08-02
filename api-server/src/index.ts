@@ -1,23 +1,29 @@
 import { Hono } from "hono";
+import { env } from "../env";
+import { logger } from "../lib/logger";
+import { errorHandler } from "./middleware/error";
+import { healthz } from "./routes/healthz";
+import { metricsRoutes } from "./routes/metrics";
+import { auth } from "./routes/auth";
+import { projects } from "./routes/projects";
+import { deployments } from "./routes/deployments";
+import { envvars } from "./routes/envvars";
+import { webhooks } from "./routes/webhooks";
+import type { AppEnv } from "./types";
 
-const app = new Hono();
+const app = new Hono<AppEnv>();
 
-app.get("/healthz", (c) =>
-  c.json({ ok: true, service: "api-server", ts: Date.now() }),
-);
+app.notFound((c) => c.json({ error: "not_found" }, 404));
+app.onError(errorHandler);
 
-app.get("/metrics", (c) =>
-  c.text(
-    "# HELP api_server_up 1 when the api-server process is alive\n" +
-      "# TYPE api_server_up gauge\n" +
-      "api_server_up 1\n",
-    200,
-    { "Content-Type": "text/plain; version=0.0.4" },
-  ),
-);
+app.route("/healthz", healthz);
+app.route("/metrics", metricsRoutes);
+app.route("/auth", auth);
+app.route("/", projects);
+app.route("/", deployments);
+app.route("/", envvars);
+app.route("/webhooks", webhooks);
 
-app.all("*", (c) => c.json({ error: "Not Found" }, 404));
-
-const port = Number(process.env.PORT ?? 3001);
+const port = env.PORT;
 Bun.serve({ port, fetch: app.fetch });
-console.log(`api-server listening on :${port}`);
+logger.info("api-server listening", { port, env: env.NODE_ENV });

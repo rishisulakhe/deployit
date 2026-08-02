@@ -1,22 +1,24 @@
-FROM ubuntu:focal
+# Bun-based build agent image, executed as the ECS Fargate task.
+#
+# The orchestrator spawns a fresh task per build with all build config injected
+# as env vars (see orchestrator/lib/ecs.ts). Env vars include REPO_URL with
+# the user's GitHub token, BRANCH, ROOT_DIR, BUILD_COMMAND, BUILD_DIR,
+# DEPLOYMENT_ID, PROJECT_ID, REDIS_URL, S3_ARTIFACTS_BUCKET, AWS_REGION.
 
-RUN apt-get update
-RUN apt-get install -y curl
-RUN curl -sL https://deb.nodesource.com/setup_20.x | bash -
-RUN apt-get upgrade -y
-RUN apt-get install -y nodejs
+FROM oven/bun:1-debian AS base
 
-RUN apt-get install git -y
+# git is required for cloning user repos.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /home/app
+WORKDIR /app
 
-COPY main.sh main.sh
-COPY script.js script.js
-COPY package*.json .
+# Install deps first to leverage Docker layer caching.
+COPY package.json bun.lock* ./
+RUN bun install --production --frozen-lockfile || bun install --production
 
-RUN npm install
+COPY . .
 
-RUN chmod +x main.sh
-RUN chmod +x script.js
-
-ENTRYPOINT [ "/home/app/main.sh" ]
+USER bun
+CMD ["bun", "src/index.ts"]

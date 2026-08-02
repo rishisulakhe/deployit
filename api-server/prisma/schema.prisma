@@ -1,5 +1,13 @@
-// Prisma schema for @vercel-clone/api-server
-// Full schema (User, Project, Deployment, EnvVar, BuildLog) is added in Phase 2.
+// Prisma schema for @vercel-clone/api-server.
+//
+// Models the deploy-it-on-aws platform state: Users connect via GitHub OAuth,
+// each User owns Projects; a Project has many Deployments and EnvVars; a
+// Deployment has many BuildLog lines (streamed from the build-agent through
+// Redis pub/sub).
+//
+// Security: the GitHub OAuth token lives encrypted-at-rest on User.encryptedToken
+// (KMS-decrypted only when the orchestrator launches a build). Project env vars
+// are similarly encrypted on EnvVar.encryptedValue.
 
 generator client {
   provider = "prisma-client"
@@ -10,9 +18,87 @@ datasource db {
   provider = "postgresql"
 }
 
+enum DeploymentStatus {
+  QUEUED
+  RUNNING
+  SUCCESS
+  FAILED
+  TIMEOUT
+  CANCELLED
+}
+
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
+  id             String    @id @default(uuid())
+  githubId       Int       @unique
+  githubUsername String    @unique
+  email          String    @unique
+  name           String?
+  avatar         String?
+  bio            String?
+  encryptedToken Bytes?
+  projects       Project[]
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model Project {
+  id           String       @id @default(uuid())
+  name         String
+  slug         String       @unique
+  userId       String
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repoOwner    String
+  repoName     String
+  branch       String
+  rootDir      String?
+  buildCommand String?
+  buildDir     String?
+  private      Boolean      @default(false)
+  showOnHome   Boolean      @default(false)
+  deployments  Deployment[]
+  envVars      EnvVar[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([slug])
+  @@index([userId])
+}
+
+model Deployment {
+  id         String           @id @default(uuid())
+  projectId  String
+  project    Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status     DeploymentStatus @default(QUEUED)
+  attempt    Int              @default(0)
+  ecsTaskArn String?
+  size       BigInt?
+  durationMs Int?
+  logs       BuildLog[]
+  createdAt  DateTime         @default(now())
+  endedAt    DateTime?
+
+  @@index([projectId, createdAt])
+  @@index([status])
+}
+
+model EnvVar {
+  id             String  @id @default(uuid())
+  projectId      String
+  project        Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  key            String
+  encryptedValue Bytes
+
+  @@index([projectId])
+  @@unique([projectId, key])
+}
+
+model BuildLog {
+  id           String    @id @default(uuid())
+  deploymentId String
+  deployment   Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+  line         String
+  stream       String
+  ts           DateTime  @default(now())
+
+  @@index([deploymentId, ts])
 }
