@@ -87,12 +87,15 @@ Fargate tasks, CloudFront with WAF).
 ```bash
 bun install                                     # installs all workspaces
 cp .env.example .env                            # then fill in real values
-docker compose up -d postgres redis             # start backing services
+docker compose up -d                            # postgres + redis + prometheus + grafana
 bun run dev:api                                 # api-server on :3001
 bun run dev:orch                                # orchestrator worker
 bun run dev:proxy                                # edge-proxy on :8000
 bun run dev:dashboard                            # Next.js on :3000
 ```
+
+Open Grafana at `http://localhost:3002` (admin/admin) — the Prometheus
+datasource is provisioned automatically via `infra/grafana/provisioning/`.
 
 ## License
 

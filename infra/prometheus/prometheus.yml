@@ -1,0 +1,28 @@
+# Prometheus scrape configuration for local dev.
+# App services run on the host alongside the compose stack, so targets point
+# at host.docker.internal (mapped to the host gateway by `extra_hosts`).
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: api-server
+    static_configs:
+      - targets: ["host.docker.internal:3001"]
+        labels:
+          service: api-server
+
+  - job_name: edge-proxy
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+        labels:
+          service: edge-proxy
+
+  # The orchestrator doesn't expose HTTP by default; a /metrics port will be
+  # added in Phase 2 (e.g. orchestrator on 3002). Until then it is unsrapped.
+  - job_name: orchestrator
+    static_configs:
+      - targets: ["host.docker.internal:3002"]
+        labels:
+          service: orchestrator

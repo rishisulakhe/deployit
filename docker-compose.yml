@@ -1,0 +1,82 @@
+# Local development stack.
+#
+# Brings up the backing services the apps need plus the observability stack.
+# The app services themselves run on the host via:
+#   bun run dev:api        # api-server on :3001
+#   bun run dev:orch       # orchestrator
+#   bun run dev:proxy      # edge-proxy on :8000
+#   bun run dev:dashboard  # Next.js on :3000
+#
+# Usage:
+#   docker compose up -d
+#   docker compose logs -f postgres redis
+#   docker compose down -v   # wipe data volumes
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vercel-clone-postgres
+    environment:
+      POSTGRES_USER: vercel
+      POSTGRES_PASSWORD: vercel
+      POSTGRES_DB: vercel
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vercel"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: vercel-clone-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: vercel-clone-prometheus
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      # Linux: `hostapikey.internal` resolves to the docker host so prometheus
+      # can scrape the apps running on the host alongside the compose stack.
+      - "host.docker.internal:host-gateway"
+    depends_on: []
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: vercel-clone-grafana
+    ports:
+      - "3002:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:

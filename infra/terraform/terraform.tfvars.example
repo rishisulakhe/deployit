@@ -1,0 +1,27 @@
+# Copy to terraform.tfvars and adjust per environment.
+# Recommended workflow: use Terraform workspaces (`terraform workspace new dev`).
+# Use the prod workspace with this example overridden for HA sizing.
+
+project              = "vercel-clone"
+env                  = "dev"
+region               = "ap-south-2"
+vpc_cidr             = "10.20.0.0/18"
+az_count             = 2
+
+rds_instance_class      = "db.t4g.micro"
+rds_multi_az            = false
+rds_allocated_storage   = 20
+
+redis_node_type         = "cache.t4g.micro"
+redis_cluster_mode      = false
+
+cloudfront_price_class  = "PriceClass_200"
+
+# TLS deferred in dev — leave blank; ALB serves HTTP only.
+dashboard_acm_cert_arn = ""
+dashboard_domain        = ""
+
+# Public ingress to ALB. Lock down in production.
+allowed_ingest_cidrs = ["0.0.0.0/0"]
+
+tags = {}

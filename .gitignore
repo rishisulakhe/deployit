@@ -20,7 +20,6 @@ generated/
 
 # --- Infra state ---
 infra/terraform/.terraform/
-infra/terraform/.terraform.lock.hcl
 *.tfstate
 *.tfstate.*
 *.tfvars
