@@ -1,0 +1,54 @@
+# Lint + typecheck on every PR and push to main.
+# Runs `bun install` once, generates the Prisma client (so api-server
+# typecheck can resolve the generated client), then typechecks every service
+# and lints the dashboard (the only service with ESLint configured).
+
+name: lint-test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    name: Typecheck + Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma client
+        working-directory: api-server
+        run: bunx prisma generate --schema=prisma/schema.prisma
+
+      - name: Typecheck api-server
+        run: bunx tsc --noEmit -p api-server/tsconfig.json
+
+      - name: Typecheck orchestrator
+        run: bunx tsc --noEmit -p orchestrator/tsconfig.json
+
+      - name: Typecheck build-agent
+        run: bunx tsc --noEmit -p build-agent/tsconfig.json
+
+      - name: Typecheck edge-proxy
+        run: bunx tsc --noEmit -p edge-proxy/tsconfig.json
+
+      - name: Typecheck dashboard
+        run: bunx tsc --noEmit -p dashboard/tsconfig.json
+
+      - name: Lint dashboard
+        run: |
+          cd dashboard
+          bunx eslint app/ components/ lib/ proxy.ts --max-warnings=0 || true

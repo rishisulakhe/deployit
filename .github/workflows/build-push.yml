@@ -1,0 +1,78 @@
+# Build + push each service image to ECR on merge to main.
+# Uses AWS OIDC for keyless auth. Each service gets its own job so they build
+# in parallel.
+#
+# Required GitHub secrets:
+#   AWS_ROLE_TO_ASSUME — IAM role with ECR push permissions (OIDC trust)
+#
+# The ECR repos are created by the Terraform `ecr` module:
+#   vercel-clone-dev/api-server
+#   vercel-clone-dev/orchestrator
+#   vercel-clone-dev/build-agent
+#   vercel-clone-dev/edge-proxy
+#   vercel-clone-dev/dashboard
+
+name: build-push
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: build-push-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    name: Build & Push ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [api-server, orchestrator, build-agent, edge-proxy, dashboard]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ap-south-2
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+        with:
+          mask-password: "true"
+
+      - name: Determine image tag
+        id: tag
+        run: echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+
+      # --- Bun-based services (api-server, orchestrator, build-agent, edge-proxy) ---
+      - name: Build ${{ matrix.service }} (Bun)
+        if: matrix.service != 'dashboard'
+        working-directory: ${{ matrix.service }}
+        run: |
+          docker build \
+            -t $AWS_ACCOUNT_ID.dkr.ecr.ap-south-2.amazonaws.com/vercel-clone-dev/${{ matrix.service }}:${{ steps.tag.outputs.tag }} \
+            -t $AWS_ACCOUNT_ID.dkr.ecr.ap-south-2.amazonaws.com/vercel-clone-dev/${{ matrix.service }}:latest \
+            .
+
+      # --- Next.js dashboard (standalone output) ---
+      - name: Build dashboard (Next.js)
+        if: matrix.service == 'dashboard'
+        working-directory: dashboard
+        run: |
+          docker build \
+            -t $AWS_ACCOUNT_ID.dkr.ecr.ap-south-2.amazonaws.com/vercel-clone-dev/dashboard:${{ steps.tag.outputs.tag }} \
+            -t $AWS_ACCOUNT_ID.dkr.ecr.ap-south-2.amazonaws.com/vercel-clone-dev/dashboard:latest \
+            .
+
+      - name: Push ${{ matrix.service }}
+        run: |
+          docker push $AWS_ACCOUNT_ID.dkr.ecr.ap-south-2.amazonaws.com/vercel-clone-dev/${{ matrix.service }}:${{ steps.tag.outputs.tag }}
+          docker push $AWS_ACCOUNT_ID.dkr.ecr.ap-south-2.amazonaws.com/vercel-clone-dev/${{ matrix.service }}:latest

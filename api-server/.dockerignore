@@ -1,0 +1,10 @@
+node_modules/
+bun.lock
+bun.lockb
+.env
+.env.local
+dist/
+generated/
+*.log
+.DS_Store
+src/generated/
