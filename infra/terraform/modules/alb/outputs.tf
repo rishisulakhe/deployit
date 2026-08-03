@@ -29,3 +29,8 @@ output "edge_proxy_target_group_arn" {
 output "http_listener_arn" {
   value = aws_lb_listener.http.arn
 }
+
+output "arn_suffix" {
+  value       = aws_lb.this.arn_suffix
+  description = "ALB ARN suffix for CloudWatch metric dimensions."
+}

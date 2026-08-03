@@ -136,5 +136,19 @@ module "cloudwatch" {
   services      = ["api-server", "orchestrator", "build-agent", "edge-proxy", "dashboard"]
   kms_key_arn   = module.kms.key_arn
   log_retention = 14
-  common_tags   = local.common_tags
+
+  # RDS
+  rds_instance_identifier = module.rds.instance_identifier
+
+  # ElastiCache
+  redis_cluster_id = module.elasticache.cluster_id
+
+  # ALB
+  alb_arn_suffix = module.alb.arn_suffix
+
+  # ECS
+  ecs_cluster_name      = module.ecs.cluster_name
+  ecs_build_task_family = module.ecs.build_agent_task_definition_family
+
+  common_tags = local.common_tags
 }

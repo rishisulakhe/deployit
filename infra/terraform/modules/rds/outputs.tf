@@ -25,3 +25,8 @@ output "security_group_id" {
 output "ssm_password_parameter" {
   value = aws_ssm_parameter.master_password.name
 }
+
+output "instance_identifier" {
+  value       = aws_db_instance.this.identifier
+  description = "RDS DBInstanceIdentifier for CloudWatch metric dimensions."
+}

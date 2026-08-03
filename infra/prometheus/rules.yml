@@ -1,0 +1,41 @@
+groups:
+  - name: vercel-clone-recording
+    interval: 30s
+    rules:
+      # --- Build pipeline ---
+      - record: vercel_clone:build_success_rate_5m
+        expr: |
+          sum(rate(orchestrator_jobs_succeeded_total[5m]))
+          /
+          clamp_min(sum(rate(orchestrator_jobs_total[5m])), 1e-9)
+
+      - record: vercel_clone:build_duration_avg_5m
+        expr: |
+          rate(orchestrator_build_duration_seconds_sum[5m])
+          /
+          clamp_min(rate(orchestrator_build_duration_seconds_count[5m]), 1e-9)
+
+      - record: vercel_clone:build_duration_p95_5m
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(orchestrator_build_duration_seconds_bucket[5m])))
+
+      # --- Edge proxy ---
+      - record: vercel_clone:edge_cache_hit_ratio_5m
+        expr: |
+          sum(rate(edge_proxy_cache_hits_total[5m]))
+          /
+          clamp_min(sum(rate(edge_proxy_requests_total[5m])), 1)
+
+      - record: vercel_clone:edge_5xx_rate_5m
+        expr: |
+          sum(rate(edge_proxy_not_found_total[5m]))
+
+      # --- API server ---
+      - record: vercel_clone:api_deploy_trigger_rate_5m
+        expr: |
+          sum(rate(api_server_queue_pushes_total[5m]))
+
+      - record: vercel_clone:api_auth_error_rate_5m
+        expr: |
+          sum(rate(api_server_github_auth_errors_total[5m]))

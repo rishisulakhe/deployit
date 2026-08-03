@@ -6,6 +6,11 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# Recording rules pre-compute commonly-queried rates so dashboard queries stay
+# fast even under high cardinality.
+rule_files:
+  - /etc/prometheus/rules.yml
+
 scrape_configs:
   - job_name: api-server
     static_configs:
@@ -19,9 +24,8 @@ scrape_configs:
         labels:
           service: edge-proxy
 
-  # The orchestrator doesn't expose HTTP by default; a /metrics port will be
-  # added in Phase 2 (e.g. orchestrator on 3002). Until then it is unsrapped.
   - job_name: orchestrator
+    metrics_path: /metrics
     static_configs:
       - targets: ["host.docker.internal:3002"]
         labels:
