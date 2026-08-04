@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { clientApi } from "@/lib/api";
+import { clientApi } from "@/lib/client-api";
 import { Trash2, Loader2 } from "lucide-react";
 
 export function DeleteProject({

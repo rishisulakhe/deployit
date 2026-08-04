@@ -15,7 +15,7 @@ import {
   CardDescription,
 } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
-import { clientApi } from "@/lib/api";
+import { clientApi } from "@/lib/client-api";
 
 export function ImportWizard({
   repoOwner,
@@ -48,28 +48,32 @@ export function ImportWizard({
     setLoading(true);
     setError(null);
 
-    const res = await api.post<{ project?: { id: string }; error?: string }>(
-      "/projects",
-      {
-        name,
-        slug,
-        repoOwner,
-        repoName,
-        branch,
-        rootDir,
-        buildCommand,
-        buildDir,
-        private: isPrivate,
-        showOnHome: false,
-      },
-    );
+    try {
+      const res = await api.post<{ project?: { id: string }; error?: string }>(
+        "/projects",
+        {
+          name,
+          slug,
+          repoOwner,
+          repoName,
+          branch,
+          rootDir,
+          buildCommand,
+          buildDir,
+          private: isPrivate,
+          showOnHome: false,
+        },
+      );
 
-    if (res.status === 201 && res.data?.project?.id) {
-      // Trigger a deployment right away.
-      await api.post(`/projects/${res.data.project.id}/deployments`);
-      router.push(`/project/${res.data.project.id}/overview`);
-    } else {
-      setError(res.data?.error ?? "Failed to create project");
+      if (res.status === 201 && res.data?.project?.id) {
+        await api.post(`/projects/${res.data.project.id}/deployments`);
+        router.push(`/project/${res.data.project.id}/overview`);
+      } else {
+        setError(res.data?.error ?? "Failed to create project");
+        setLoading(false);
+      }
+    } catch (e) {
+      setError("Network error — is the api-server running on :3001?");
       setLoading(false);
     }
   }

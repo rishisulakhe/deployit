@@ -25,10 +25,10 @@ resource "aws_kms_key" "this" {
         Effect = "Allow"
         Principal = {
           Service = [
-            "s3.${data.aws_region.current.name}.amazonaws.com",
-            "rds.${data.aws_region.current.name}.amazonaws.com",
-            "elasticache.${data.aws_region.current.name}.amazonaws.com",
-            "ecr.${data.aws_region.current.name}.amazonaws.com",
+            "s3.amazonaws.com",
+            "rds.amazonaws.com",
+            "elasticache.amazonaws.com",
+            "ecr.amazonaws.com",
             "logs.${data.aws_region.current.name}.amazonaws.com",
           ]
         }

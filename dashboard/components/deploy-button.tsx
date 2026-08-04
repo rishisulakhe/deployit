@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Rocket, Loader2 } from "lucide-react";
-import { clientApi } from "@/lib/api";
+import { clientApi } from "@/lib/client-api";
 
 export function DeployButton({
   projectId,

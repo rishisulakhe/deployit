@@ -1,7 +1,8 @@
 import { z } from "zod";
 
 const schema = z.object({
-  PORT: z.coerce.number().default(3002),
+  PORT: z.coerce.number().default(3003),
+  ORCHESTRATOR_PORT: z.coerce.number().optional(),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 
   DATABASE_URL: z.string().default(
@@ -33,6 +34,11 @@ const schema = z.object({
   // without baking it into its task definition.
   S3_ARTIFACTS_BUCKET: z.string().default("vercel-clone-artifacts-dev"),
   S3_ARTIFACTS_PREFIX: z.string().default("projects"),
+
+  // Redis URL passed to ECS build-agent tasks. In local dev, this is the
+  // ElastiCache endpoint (reachable from ECS in VPC). If empty, falls back
+  // to REDIS_URL (which works in local build mode).
+  ECS_REDIS_URL: z.string().default(""),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -44,5 +50,9 @@ if (!parsed.success) {
   process.exit(1);
 }
 
-export type OrchestratorEnv = z.infer<typeof schema>;
-export const env: OrchestratorEnv = parsed.data;
+export type OrchestratorEnv = Omit<z.infer<typeof schema>, "ORCHESTRATOR_PORT"> & {
+  PORT: number;
+};
+
+const resolvedPort = parsed.data.ORCHESTRATOR_PORT ?? parsed.data.PORT;
+export const env: OrchestratorEnv = { ...parsed.data, PORT: resolvedPort };

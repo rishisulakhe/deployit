@@ -1,10 +1,11 @@
 // prisma.config.ts — loaded by `bunx prisma migrate dev` and `prisma generate`.
-// Loads .env from the api-server/ directory so DATABASE_URL is available.
+// Loads .env from the monorepo root so DATABASE_URL is available.
 
 import { config } from "dotenv";
-import { defineConfig } from "prisma/config";
+import { resolve } from "node:path";
+import { defineConfig, env } from "prisma/config";
 
-config({ path: ".env" });
+config({ path: resolve(import.meta.dirname, "..", ".env") });
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
@@ -12,6 +13,6 @@ export default defineConfig({
     path: "prisma/migrations",
   },
   datasource: {
-    url: process.env["DATABASE_URL"] ?? "",
+    url: env("DATABASE_URL"),
   },
 });

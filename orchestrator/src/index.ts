@@ -214,7 +214,7 @@ async function loop(): Promise<void> {
   }
 }
 
-// /metrics + /healthz HTTP server on the orchestrator's own port (default 3002).
+// /metrics + /healthz HTTP server on the orchestrator's own port (default 3003).
 Bun.serve({
   port: env.PORT,
   fetch: (req) => {
