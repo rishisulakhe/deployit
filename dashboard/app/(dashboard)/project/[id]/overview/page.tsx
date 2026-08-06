@@ -30,7 +30,7 @@ export default async function OverviewPage({
   const deployments = depRes?.deployments ?? [];
   const latest = deployments[0] ?? null;
 
-  const deployedUrl = `${edgeProxyUrl}/${project.id}/${latest?.id ?? "pending"}`;
+  const deployedUrl = `${edgeProxyUrl}/${project.slug}/`;
 
   return (
     <div className="grid gap-6 md:grid-cols-3">

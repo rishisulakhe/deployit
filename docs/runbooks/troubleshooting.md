@@ -25,8 +25,15 @@ Error: connect ECONNREFUSED 127.0.0.1:6379
 Error: ecs_runtask_no_task
 ```
 → ECS cluster/task definition not found. Check `ECS_CLUSTER` and
-`ECS_BUILD_TASK_DEFINITION` env vars match Terraform outputs. In local dev
-without AWS, the orchestrator can't dispatch Fargate tasks.
+`ECS_BUILD_TASK_DEFINITION` env vars match Terraform outputs. This only
+happens in AWS mode. In local mode (`ECS_BUILD_TASK_SUBNETS=""`), the
+orchestrator spawns build-agent as a subprocess instead.
+
+```
+Error: EADDRINUSE :3001
+```
+→ The shared `PORT=3001` in `.env` is for api-server. The orchestrator
+uses `ORCHESTRATOR_PORT=3003`. Ensure `ORCHESTRATOR_PORT` is set in `.env`.
 
 ```
 Error: connect ECONNREFUSED 127.0.0.1:6379
@@ -44,8 +51,9 @@ unbuilt. Check `SELECT * FROM "Project" WHERE slug = '<slug>'` directly.
 ```
 upstream_error (502)
 ```
-→ CloudFront/S3 backend unreachable. Check `EDGE_PROXY_BACKEND_BASE_URL`
-env var. In dev, it should point at your S3 bucket URL.
+→ CloudFront/S3 backend unreachable (AWS mode). Check
+`EDGE_PROXY_BACKEND_BASE_URL` env var. In local mode, check that the
+artifacts exist in `/tmp/vercel-clone-artifacts/`.
 
 ### dashboard
 
@@ -55,12 +63,18 @@ Redirect loop between /login and /dashboard
 → The session cookie isn't set or has expired. Clear cookies and re-login.
 Also verify `NEXTAUTH_SECRET` and `JWT_SECRET` are set.
 
+```
+Login button shows "client_id=" empty
+```
+→ The dashboard reads `NEXT_PUBLIC_GITHUB_CLIENT_ID` (not `GITHUB_CLIENT_ID`).
+Ensure both are set in `.env` and `dashboard/.env` symlink exists.
+
 ## Build pipeline issues
 
 ### Build stays in QUEUED forever
 
-1. Check orchestrator is running: `curl localhost:3002/healthz`
-2. Check queue depth: `curl localhost:3002/metrics | grep queue_depth`
+1. Check orchestrator is running: `curl localhost:3003/metrics`
+2. Check queue depth: `curl localhost:3003/metrics | grep queue_depth`
 3. Check Redis: `redis-cli LLEN build_queue`
 4. If the orchestrator crashed, restart it and jobs will resume via BRPOP.
 
@@ -78,6 +92,7 @@ Also verify `NEXTAUTH_SECRET` and `JWT_SECRET` are set.
 ### Build TIMEOUT after 15 minutes
 
 - The ECS task timeout is 900 seconds (configurable via `ECS_BUILD_TIMEOUT_SECONDS`).
+- In local mode, the subprocess timeout is also 900 seconds.
 - Large installs or heavy builds may need more. Increase the env var.
 - Check if the build is hanging on a prompt (e.g. `npm init` — should never
   happen with `--no-audit --no-fund` but custom scripts can prompt).
@@ -127,7 +142,7 @@ host-gateway` is in docker-compose.yml (it is for Prometheus).
 ### Grafana dashboards not appearing
 
 1. Check provisioning: `docker compose logs grafana | grep -i provisioning`
-2. Verify dashboards are mounted: 
+2. Verify dashboards are mounted:
    `docker compose exec grafana ls /var/lib/grafana/dashboards/`
 3. Restart Grafana: `docker compose restart grafana`
 
@@ -139,3 +154,21 @@ aws cloudwatch describe-alarms --alarm-name-prefix vercel-clone
 ```
 Check that `rds_instance_identifier`, `redis_cluster_id`, `alb_arn_suffix`,
 and `ecs_cluster_name` are correctly set in the Terraform cloudwatch module.
+
+## Mode switching issues
+
+### Switched to AWS mode but builds still run locally
+
+Check that `ECS_BUILD_TASK_SUBNETS` is non-empty in `.env`. The orchestrator
+uses this as the toggle: empty → local subprocess, non-empty → ECS RunTask.
+
+### Switched back to local mode but edge-proxy returns 502
+
+Check that `EDGE_PROXY_BACKEND_BASE_URL=""` in `.env`. If it's still set
+to a CloudFront URL, edge-proxy will try to proxy to a non-existent
+distribution. Also clear any cached entries: `redis-cli DEL edge:slug:*`
+
+### Artifacts not found after switching modes
+
+Local mode artifacts are in `/tmp/vercel-clone-artifacts/` — this directory
+may have been cleared. Re-deploy the project to regenerate.

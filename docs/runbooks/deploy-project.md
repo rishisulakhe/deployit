@@ -17,6 +17,9 @@
 6. Watch live build logs on the deployment page (SSE stream).
 7. Once status = SUCCESS, click **Visit** to view the deployed site.
 
+> In **local mode**, the deployed site URL is `http://localhost:8000/<slug>/`.
+> In **AWS mode**, it's `https://<slug>.<your-domain>` (or via the ALB).
+
 ## Via the API (curl)
 
 ```bash
@@ -50,10 +53,20 @@ curl -N http://localhost:3001/deployments/<deployment-id>/logs/stream?token=$TOK
 
 ## What happens behind the scenes
 
+### AWS mode
+
 ```
 dashboard → api-server → Redis queue → orchestrator
   → ECS Fargate build-agent → git clone → install → build → S3
   → edge-proxy serves it on <slug>.<domain>
+```
+
+### Local mode
+
+```
+dashboard → api-server → Redis queue → orchestrator
+  → bun subprocess (build-agent) → git clone → install → build → /tmp/
+  → edge-proxy serves it on localhost:8000/<slug>/
 ```
 
 Logs stream from the build-agent to Redis pub/sub → api-server SSE → dashboard.
@@ -64,7 +77,7 @@ Logs stream from the build-agent to Redis pub/sub → api-server SSE → dashboa
 
 The orchestrator may not be running. Check:
 ```bash
-curl http://localhost:3002/metrics | grep queue_depth
+curl http://localhost:3003/metrics | grep queue_depth
 ```
 
 ### Build FAILED after retries
@@ -74,14 +87,17 @@ Check the DLQ for the job:
 redis-cli LRANGE build_dlq 0 -1
 ```
 
-Check ECS task logs in CloudWatch (prod) or the orchestrator stdout (dev).
+Check ECS task logs in CloudWatch (AWS mode) or the orchestrator stdout (local mode).
 
 ### Deployed site returns 404
 
 1. Verify the deployment status is SUCCESS in the dashboard.
-2. Check edge-proxy can reach the S3/CloudFront backend:
+2. Check edge-proxy is healthy:
    ```bash
    curl http://localhost:8000/healthz
    ```
-3. Check the slug matches: `redis-cli GET edge:slug:<your-slug>`
-4. If private, the edge-proxy will return 404 by design.
+3. In **local mode**, verify artifacts exist:
+   `ls /tmp/vercel-clone-artifacts/projects/<projectId>/<deploymentId>/`
+   In **AWS mode**, check S3 for the same path.
+4. Check the slug matches: `redis-cli GET edge:slug:<your-slug>`
+5. If private, the edge-proxy will return 404 by design.

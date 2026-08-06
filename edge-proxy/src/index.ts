@@ -2,6 +2,8 @@ import express from "express";
 import type { NextFunction, Request, Response } from "express";
 import httpProxy from "http-proxy";
 import type { IncomingMessage } from "node:http";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { env } from "../env";
 import { getProjectBySlug, getLatestSuccessfulDeployment, incrementViews } from "../lib/db";
 import { cacheGet, cacheSet } from "../lib/redis";
@@ -22,6 +24,9 @@ interface CachedRecord {
   private: boolean;
   status: string;
 }
+
+const LOCAL_ARTIFACTS_ROOT = "/tmp/vercel-clone-artifacts";
+const isLocalMode = !env.EDGE_PROXY_BACKEND_BASE_URL || env.EDGE_PROXY_BACKEND_BASE_URL === "local";
 
 // AWS / cloud headers we scrub from upstream responses so the deployed apps
 // look like they're served by us, not by their underlying CDN/object store.
@@ -46,6 +51,30 @@ function stripCloudHeaders(proxyRes: IncomingMessage): void {
   proxyRes.headers["x-powered-by"] = "vercel-clone";
 }
 
+function guessContentType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  const types: Record<string, string> = {
+    ".html": "text/html; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".mjs": "application/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".ico": "image/x-icon",
+    ".webp": "image/webp",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".txt": "text/plain; charset=utf-8",
+    ".xml": "application/xml",
+    ".map": "application/json",
+  };
+  return types[ext] ?? "application/octet-stream";
+}
+
 proxy.on("proxyRes", (proxyRes) => stripCloudHeaders(proxyRes as IncomingMessage));
 
 // Health + metrics endpoints — served directly, not proxied.
@@ -59,37 +88,90 @@ app.get("/metrics", (_req, res) =>
     .send(renderPrometheus()),
 );
 
+// ── Static file serving (local mode) ──────────────────────────────────────────
+
+function serveLocal(req: Request, res: Response, projectId: string, deploymentId: string) {
+  // req.url is the full URL path. basePath is the prefix we stripped (e.g. "/my-slug").
+  // We need the relative path within the deployment's build output directory.
+  const fullUrlPath = req.url.split("?")[0] || "/";
+
+  // For subdomain mode, basePath is "" and fullUrlPath starts with "/"
+  // For path mode, basePath is "/slug" and fullUrlPath starts with "/slug/..."
+  const relPath = fullUrlPath === "/" || fullUrlPath === ""
+    ? "/index.html"
+    : fullUrlPath;
+
+  const localDir = path.join(LOCAL_ARTIFACTS_ROOT, "projects", projectId, deploymentId);
+  const filePath = path.join(localDir, relPath);
+
+  // Prevent directory traversal.
+  if (!filePath.startsWith(localDir)) {
+    return res.status(403).send("forbidden");
+  }
+
+  // If the path is a directory, serve index.html from it.
+  try {
+    const stat = fs.statSync(filePath);
+    if (stat.isDirectory()) {
+      const indexFile = path.join(filePath, "index.html");
+      if (fs.existsSync(indexFile)) {
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        return res.send(fs.readFileSync(indexFile));
+      }
+    } else if (stat.isFile()) {
+      res.setHeader("Content-Type", guessContentType(filePath));
+      return res.send(fs.readFileSync(filePath));
+    }
+  } catch {
+    // File not found — try SPA fallback (index.html in root)
+    const spaFallback = path.join(localDir, "index.html");
+    if (fs.existsSync(spaFallback)) {
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.send(fs.readFileSync(spaFallback));
+    }
+  }
+
+  return res.status(404).send("File not found");
+}
+
 app.use(async (req, res, next) => {
   activeReqs.inc();
   requests.inc();
 
-  // Extract subdomain. With no real domain yet we accept *.localhost:8000
-  // or `<slug>.<host>`; the first DNS label is the slug.
   const hostname = req.hostname;
-  const subdomain = hostname.split(".")[0];
+  const urlPath = req.path;
 
-  if (!subdomain || subdomain === "localhost" || subdomain === "edge" || subdomain === "www") {
-    activeReqs.dec();
-    return res.status(404).json({ error: "missing_subdomain" });
+  // Determine slug from subdomain OR path prefix.
+  // Subdomain mode: "my-slug.localhost:8000/" → slug = "my-slug"
+  // Path mode: "localhost:8000/my-slug/" → slug = "my-slug"
+  let subdomain = hostname.split(".")[0] ?? "";
+  const skipSubdomains = ["localhost", "edge", "www", "127", "0", ""];
+
+  let slug: string;
+
+  if (!skipSubdomains.includes(subdomain)) {
+    slug = subdomain;
+  } else {
+    const segments = urlPath.split("/").filter(Boolean);
+    if (segments.length === 0) {
+      activeReqs.dec();
+      return res.status(404).json({ error: "missing_subdomain" });
+    }
+    slug = segments[0]!;
+    req.url = "/" + segments.slice(1).join("/") + (req.url.includes("?") ? "?" + req.url.split("?")[1] : "");
   }
 
   // Cache lookup of project record.
-  const cacheKey = `edge:slug:${subdomain}`;
+  const cacheKey = `edge:slug:${slug}`;
   let record = await cacheGet<CachedRecord>(cacheKey);
   if (record) {
     cacheHits.inc();
   } else {
     cacheMisses.inc();
-    const fromDb = await getProjectBySlug(subdomain);
+    const fromDb = await getProjectBySlug(slug);
     if (!fromDb) {
       misses404.inc();
       activeReqs.dec();
-      if (env.EDGE_PROXY_NOT_FOUND_URL) {
-        return proxy.web(req, res, {
-          target: env.EDGE_PROXY_NOT_FOUND_URL,
-          changeOrigin: true,
-        });
-      }
       return res.status(404).send("Project not found");
     }
     record = {
@@ -104,12 +186,6 @@ app.use(async (req, res, next) => {
   if (record.private || record.status !== "SUCCESS") {
     misses404.inc();
     activeReqs.dec();
-    if (env.EDGE_PROXY_NOT_FOUND_URL) {
-      return proxy.web(req, res, {
-        target: env.EDGE_PROXY_NOT_FOUND_URL,
-        changeOrigin: true,
-      });
-    }
     return res.status(404).send("Project not available");
   }
 
@@ -129,14 +205,21 @@ app.use(async (req, res, next) => {
   // Fire-and-forget view counter (do not block the request).
   incrementViews(record.id).catch(() => {});
 
-  const target = `${env.EDGE_PROXY_BACKEND_BASE_URL}/${record.id}/${deploymentId}`;
-  // Inject /index.html for SPA-style root requests.
+  if (isLocalMode) {
+    // Serve from local filesystem.
+    activeReqs.dec();
+    return serveLocal(req as Request, res, record.id, deploymentId);
+  }
+
+  // Proxy to CloudFront/S3.
+  const target = `${env.EDGE_PROXY_BACKEND_BASE_URL}/projects/${record.id}/${deploymentId}`;
+
   proxy.web(req, res, { target, changeOrigin: true }, (err) => {
     activeReqs.dec();
     logger.error("proxy_web_error", {
-      slug: subdomain,
+      slug,
       target,
-      error: err.message,
+      error: (err as Error).message,
     });
     if (!res.headersSent) res.status(502).send("upstream_error");
   });
@@ -156,7 +239,9 @@ app.use((req: Request, res: Response, _next: NextFunction) => {
 });
 
 const port = env.EDGE_PROXY_PORT;
-app.listen(port, () => logger.info("edge_proxy_listening", { port }));
+app.listen(port, () => {
+  logger.info("edge_proxy_listening", { port, mode: isLocalMode ? "local" : "proxy", backend: env.EDGE_PROXY_BACKEND_BASE_URL });
+});
 
 // Graceful shutdown of the pg pool so the process can exit promptly on SIGTERM.
 process.on("SIGTERM", () => {

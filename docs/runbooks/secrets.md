@@ -24,8 +24,9 @@ When KMS is configured:
 - Project env vars are encrypted with `kms:Encrypt` before storing in RDS
 - The orchestrator and build-agent decrypt via the ECS task IAM role
 
-In dev (KMS_KEY_ID empty), the api-server uses a passthrough with a `dev:`
-prefix — DO NOT use this for real secrets.
+In local mode (`KMS_KEY_ID=""`), the api-server uses a passthrough with a
+`dev:` prefix — DO NOT use this for real secrets. This is fine for local
+development and demos where all data lives on your machine.
 
 ## AWS Credentials
 

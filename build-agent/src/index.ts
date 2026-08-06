@@ -66,7 +66,7 @@ async function main(): Promise<void> {
   }
 
   const s3Prefix =
-    `${env.S3_ARTIFACTS_PREFIX}/projects/${env.PROJECT_ID}/${env.DEPLOYMENT_ID}/`;
+    `${env.S3_ARTIFACTS_PREFIX}/${env.PROJECT_ID}/${env.DEPLOYMENT_ID}/`;
 
   await publishLog(depId, `Uploading ${buildDir} to s3://${env.S3_ARTIFACTS_BUCKET}/${s3Prefix}`);
   const stats = await uploadDirectory({
