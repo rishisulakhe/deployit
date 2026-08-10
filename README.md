@@ -42,7 +42,7 @@ graph TB
     end
 
     subgraph API["API Layer"]
-        API["api-server<br/>Hono + Prisma<br/>:3001"]
+        APISERVER["api-server<br/>Hono + Prisma<br/>:3001"]
     end
 
     subgraph Pipeline["Build Pipeline"]
