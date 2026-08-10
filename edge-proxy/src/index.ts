@@ -11,7 +11,7 @@ import { logger } from "../lib/logger";
 import { registerCounter, registerGauge, renderPrometheus } from "../lib/metrics";
 
 const app = express();
-const proxy = httpProxy.createProxy();
+const proxy = httpProxy.createProxy({ selfHandleResponse: true });
 
 const requests = registerCounter("edge_proxy_requests_total", "Total proxied requests");
 const cacheHits = registerCounter("edge_proxy_cache_hits_total", "Subdomain cache hits");
@@ -51,6 +51,18 @@ function stripCloudHeaders(proxyRes: IncomingMessage): void {
   proxyRes.headers["x-powered-by"] = "vercel-clone";
 }
 
+// Vite / webpack static builds emit root-absolute asset URLs in index.html
+// (e.g. src="/assets/index-<hash>.js"). Under path-based routing the app is
+// served at /<slug>/ so those requests would hit the proxy WITHOUT the slug
+// prefix and get misrouted. Rewrite them to /<slug>/... so they resolve.
+function rewriteHtmlPaths(html: string, basePath: string): string {
+  if (!basePath) return html;
+  return html.replace(
+    /((?:src|href|action)=["'])\//g,
+    `$1${basePath}/`,
+  );
+}
+
 function guessContentType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
   const types: Record<string, string> = {
@@ -75,7 +87,29 @@ function guessContentType(filePath: string): string {
   return types[ext] ?? "application/octet-stream";
 }
 
-proxy.on("proxyRes", (proxyRes) => stripCloudHeaders(proxyRes as IncomingMessage));
+proxy.on("proxyRes", (proxyRes, req, res) => {
+  stripCloudHeaders(proxyRes as IncomingMessage);
+
+  const basePath = (req as Request & { __edgeBasePath?: string }).__edgeBasePath ?? "";
+  const isHtml = (proxyRes.headers["content-type"] ?? "").includes("text/html");
+
+  if (basePath && isHtml) {
+    // Buffer the upstream HTML so we can rewrite root-absolute asset paths.
+    const chunks: Buffer[] = [];
+    proxyRes.on("data", (c: Buffer) => chunks.push(c));
+    proxyRes.on("end", () => {
+      const html = Buffer.concat(chunks).toString("utf-8");
+      const rewritten = rewriteHtmlPaths(html, basePath);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Content-Length", Buffer.byteLength(rewritten));
+      res.end(rewritten);
+    });
+    return;
+  }
+
+  res.writeHead((proxyRes as IncomingMessage).statusCode ?? 200, proxyRes.headers);
+  (proxyRes as IncomingMessage).pipe(res);
+});
 
 // Health + metrics endpoints — served directly, not proxied.
 app.get("/healthz", (_req, res) =>
@@ -90,7 +124,7 @@ app.get("/metrics", (_req, res) =>
 
 // ── Static file serving (local mode) ──────────────────────────────────────────
 
-function serveLocal(req: Request, res: Response, projectId: string, deploymentId: string) {
+function serveLocal(req: Request, res: Response, projectId: string, deploymentId: string, basePath: string) {
   // req.url is the full URL path. basePath is the prefix we stripped (e.g. "/my-slug").
   // We need the relative path within the deployment's build output directory.
   const fullUrlPath = req.url.split("?")[0] || "/";
@@ -104,6 +138,11 @@ function serveLocal(req: Request, res: Response, projectId: string, deploymentId
   const localDir = path.join(LOCAL_ARTIFACTS_ROOT, "projects", projectId, deploymentId);
   const filePath = path.join(localDir, relPath);
 
+  const readHtml = (fp: string): string => {
+    const html = fs.readFileSync(fp, "utf-8");
+    return basePath ? rewriteHtmlPaths(html, basePath) : html;
+  };
+
   // Prevent directory traversal.
   if (!filePath.startsWith(localDir)) {
     return res.status(403).send("forbidden");
@@ -116,9 +155,13 @@ function serveLocal(req: Request, res: Response, projectId: string, deploymentId
       const indexFile = path.join(filePath, "index.html");
       if (fs.existsSync(indexFile)) {
         res.setHeader("Content-Type", "text/html; charset=utf-8");
-        return res.send(fs.readFileSync(indexFile));
+        return res.send(readHtml(indexFile));
       }
     } else if (stat.isFile()) {
+      if (path.extname(filePath).toLowerCase() === ".html") {
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        return res.send(readHtml(filePath));
+      }
       res.setHeader("Content-Type", guessContentType(filePath));
       return res.send(fs.readFileSync(filePath));
     }
@@ -127,7 +170,7 @@ function serveLocal(req: Request, res: Response, projectId: string, deploymentId
     const spaFallback = path.join(localDir, "index.html");
     if (fs.existsSync(spaFallback)) {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
-      return res.send(fs.readFileSync(spaFallback));
+      return res.send(readHtml(spaFallback));
     }
   }
 
@@ -148,6 +191,9 @@ app.use(async (req, res, next) => {
   const skipSubdomains = ["localhost", "edge", "www", "127", "0", ""];
 
   let slug: string;
+  // basePath is the path prefix that route-based routing consumes
+  // (e.g. "/my-slug"). Empty in subdomain mode where the app sits at domain root.
+  let basePath = "";
 
   if (!skipSubdomains.includes(subdomain)) {
     slug = subdomain;
@@ -158,6 +204,7 @@ app.use(async (req, res, next) => {
       return res.status(404).json({ error: "missing_subdomain" });
     }
     slug = segments[0]!;
+    basePath = "/" + slug;
     req.url = "/" + segments.slice(1).join("/") + (req.url.includes("?") ? "?" + req.url.split("?")[1] : "");
   }
 
@@ -208,10 +255,11 @@ app.use(async (req, res, next) => {
   if (isLocalMode) {
     // Serve from local filesystem.
     activeReqs.dec();
-    return serveLocal(req as Request, res, record.id, deploymentId);
+    return serveLocal(req as Request, res, record.id, deploymentId, basePath);
   }
 
   // Proxy to CloudFront/S3.
+  (req as Request & { __edgeBasePath?: string }).__edgeBasePath = basePath;
   const target = `${env.EDGE_PROXY_BACKEND_BASE_URL}/projects/${record.id}/${deploymentId}`;
 
   proxy.web(req, res, { target, changeOrigin: true }, (err) => {
