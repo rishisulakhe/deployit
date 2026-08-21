@@ -95,7 +95,9 @@ Deployed site: http://localhost:8000/`<slug>`/
 
 ## AWS Mode Setup
 
-### Prerequisites
+See the complete guide: **[docs/aws-deployment-guide.md](docs/aws-deployment-guide.md)**
+
+### Quick Setup
 
 - AWS CLI configured: `aws configure`
 - Docker installed
@@ -107,19 +109,10 @@ Deployed site: http://localhost:8000/`<slug>`/
 # 1. Create AWS resources (~5 min)
 ./scripts/setup-aws.sh
 
-# 2. Update .env with output values:
-#    S3_ARTIFACTS_BUCKET, ECS_CLUSTER, ECS_BUILD_TASK_SUBNETS, etc.
+# 2. Update .env with output values
 
-# 3. Build & push Docker image
-cd build-agent
-aws ecr get-login-password --region ap-south-2 | \
-  docker login --username AWS --password-stdin <account>.dkr.ecr.ap-south-2.amazonaws.com
-docker build -t <ecr-uri>:latest .
-docker push <ecr-uri>:latest
-cd ..
-
-# 4. Restart orchestrator (it will now dispatch to ECS)
-bun run dev:orch
+# 3. Build & push Docker image to ECR
+#    See docs/aws-deployment-guide.md for detailed instructions
 ```
 
 ## Services
@@ -138,6 +131,7 @@ bun run dev:orch
 |---|---|---|
 | [docs/architecture.md](docs/architecture.md) | System design, data flow, decision log |
 | [docs/runbooks/local-dev.md](docs/runbooks/local-dev.md) | Development setup, troubleshooting |
+| [docs/aws-deployment-guide.md](docs/aws-deployment-guide.md) | **Complete AWS setup guide** |
 | [docs/runbooks/deploy-project.md](docs/runbooks/deploy-project.md) | Deploying via UI or API |
 | [docs/runbooks/secrets.md](docs/runbooks/secrets.md) | GitHub OAuth setup |
 | [docs/runbooks/troubleshooting.md](docs/runbooks/troubleshooting.md) | Common issues |
