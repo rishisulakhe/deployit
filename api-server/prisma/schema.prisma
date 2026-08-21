@@ -1,14 +1,3 @@
-// Prisma schema for @vercel-clone/api-server.
-//
-// Models the deploy-it-on-aws platform state: Users connect via GitHub OAuth,
-// each User owns Projects; a Project has many Deployments and EnvVars; a
-// Deployment has many BuildLog lines (streamed from the build-agent through
-// Redis pub/sub).
-//
-// Security: the GitHub OAuth token lives encrypted-at-rest on User.encryptedToken
-// (KMS-decrypted only when the orchestrator launches a build). Project env vars
-// are similarly encrypted on EnvVar.encryptedValue.
-
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
@@ -17,15 +6,6 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-}
-
-enum DeploymentStatus {
-  QUEUED
-  RUNNING
-  SUCCESS
-  FAILED
-  TIMEOUT
-  CANCELLED
 }
 
 model User {
@@ -37,9 +17,9 @@ model User {
   avatar         String?
   bio            String?
   encryptedToken Bytes?
-  projects       Project[]
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
+  projects       Project[]
 }
 
 model Project {
@@ -47,7 +27,6 @@ model Project {
   name         String
   slug         String       @unique
   userId       String
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   repoOwner    String
   repoName     String
   branch       String
@@ -56,10 +35,11 @@ model Project {
   buildDir     String?
   private      Boolean      @default(false)
   showOnHome   Boolean      @default(false)
-  deployments  Deployment[]
-  envVars      EnvVar[]
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
+  deployments  Deployment[]
+  envVars      EnvVar[]
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([slug])
   @@index([userId])
@@ -68,15 +48,15 @@ model Project {
 model Deployment {
   id         String           @id @default(uuid())
   projectId  String
-  project    Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   status     DeploymentStatus @default(QUEUED)
   attempt    Int              @default(0)
   ecsTaskArn String?
   size       BigInt?
   durationMs Int?
-  logs       BuildLog[]
   createdAt  DateTime         @default(now())
   endedAt    DateTime?
+  logs       BuildLog[]
+  project    Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId, createdAt])
   @@index([status])
@@ -85,21 +65,30 @@ model Deployment {
 model EnvVar {
   id             String  @id @default(uuid())
   projectId      String
-  project        Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   key            String
   encryptedValue Bytes
+  project        Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  @@index([projectId])
   @@unique([projectId, key])
+  @@index([projectId])
 }
 
 model BuildLog {
-  id           String    @id @default(uuid())
+  id           String     @id @default(uuid())
   deploymentId String
-  deployment   Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
   line         String
   stream       String
-  ts           DateTime  @default(now())
+  ts           DateTime   @default(now())
+  deployment   Deployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
 
   @@index([deploymentId, ts])
+}
+
+enum DeploymentStatus {
+  QUEUED
+  RUNNING
+  SUCCESS
+  FAILED
+  TIMEOUT
+  CANCELLED
 }

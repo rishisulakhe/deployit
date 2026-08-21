@@ -1,5 +1,5 @@
 #!/bin/bash
-# One-time AWS setup for Vercel Clone
+# One-time AWS setup for DeployIt
 # Run this script to create: S3 bucket, ECR repo, ECS cluster, IAM roles
 #
 # Prerequisites:
@@ -8,7 +8,7 @@
 #   - Docker installed (for building/pushing images)
 #
 # Usage:
-#   ./scripts/setup-aws.sh [--region ap-south-2] [--bucket vercel-clone-artifacts]
+#   ./scripts/setup-aws.sh [--region ap-south-2] [--bucket deployit-rishi-artifacts]
 #
 # After running, update your .env with the output values.
 
@@ -16,9 +16,9 @@ set -e
 
 # Configurable defaults
 REGION="${AWS_REGION:-ap-south-2}"
-BUCKET_NAME="${BUCKET_NAME:-vercel-clone-artifacts}"
-ECR_REPO="${ECR_REPO:-vercel-clone/build-agent}"
-ECS_CLUSTER="${ECS_CLUSTER:-vercel-clone}"
+BUCKET_NAME="${BUCKET_NAME:-deployit-rishi-artifacts}"
+ECR_REPO="${ECR_REPO:-deployit-rishi/build-agent}"
+ECS_CLUSTER="${ECS_CLUSTER:-deployit-rishi-cluster}"
 
 # Parse args
 while [[ $# -gt 0 ]]; do
@@ -88,8 +88,8 @@ echo ""
 
 # 4. Create IAM task execution role
 echo "=== 4. Creating IAM roles for ECS tasks ==="
-TASK_EXEC_ROLE="vercel-clone-task-exec-role"
-TASK_ROLE="vercel-clone-task-role"
+TASK_EXEC_ROLE="deployit-rishi-task-exec-role"
+TASK_ROLE="deployit-rishi-task-role"
 
 # Task execution role (for pulling images)
 if aws iam get-role --role-name "$TASK_EXEC_ROLE" 2>/dev/null | jq -e '.Role' > /dev/null; then
@@ -120,7 +120,7 @@ else
   # Grant S3 put/get on artifacts bucket
   aws iam put-role-policy \
     --role-name "$TASK_ROLE" \
-    --policy-name VercelCloneS3Policy \
+    --policy-name DeployitS3Policy \
     --policy-document "{
       \"Version\": \"2012-10-17\",
       \"Statement\": [
@@ -140,7 +140,7 @@ echo ""
 
 # 5. Register ECS task definition
 echo "=== 5. Registering ECS task definition ==="
-TASK_DEF_FAMILY="vercel-clone-build-agent"
+TASK_DEF_FAMILY="deployit-rishi-build-agent"
 aws ecs register-task-definition \
   --family "$TASK_DEF_FAMILY" \
   --region "$REGION" \
@@ -162,7 +162,7 @@ aws ecs register-task-definition \
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
-          "awslogs-group": "/ecs/vercel-clone/build-agent",
+          "awslogs-group": "/ecs/deployit-rishi/build-agent",
           "awslogs-region": "'"$REGION"'",
           "awslogs-stream-prefix": "ecs"
         }
@@ -190,6 +190,16 @@ SECURITY_GROUP=$(aws ec2 describe-security-groups \
   --filters Name=vpc-id,Values="$DEFAULT_VPC" Name=group-name,Values=default \
   --region "$REGION" \
   --query 'SecurityGroups[0].GroupId' --output text)
+
+# Add inbound rule for Redis (if not already present)
+echo ""
+echo "=== Adding Redis inbound rule to default security group ==="
+aws ec2 authorize-security-group-ingress \
+  --group-id "$SECURITY_GROUP" \
+  --protocol tcp \
+  --port 6379 \
+  --cidr 0.0.0.0/0 \
+  --region "$REGION" 2>/dev/null || echo "Redis rule already exists or failed"
 
 echo "Default VPC: $DEFAULT_VPC"
 echo "Subnets: $SUBNETS"

@@ -21,8 +21,8 @@ const schema = z.object({
   ECS_BUILD_TASK_DEFINITION: z.string().default("vercel-clone-dev-build-agent"),
   ECS_BUILD_CONTAINER_NAME: z.string().default("build-agent"),
   // RunTask NetworkConfiguration awsvpc config:
-  ECS_BUILD_SUBNETS: z.string().default(""),
-  ECS_BUILD_SECURITY_GROUPS: z.string().default(""),
+  ECS_BUILD_TASK_SUBNETS: z.string().default(""),
+  ECS_BUILD_TASK_SECURITY_GROUPS: z.string().default(""),
 
   // Total per-attempt timeout. Zero disables the timeout (debug only).
   ECS_BUILD_TIMEOUT_SECONDS: z.coerce.number().default(900),

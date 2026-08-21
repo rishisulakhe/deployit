@@ -23,7 +23,7 @@ export interface TaskStatus {
 }
 
 export function isLocalMode(): boolean {
-  return env.ECS_BUILD_SUBNETS.length === 0;
+  return env.ECS_BUILD_TASK_SUBNETS.length === 0;
 }
 
 // ── Local subprocess tracking ────────────────────────────────────────────────
@@ -176,9 +176,9 @@ async function runEcsBuild(params: RunBuildTaskParams): Promise<string> {
       count: 1,
       networkConfiguration: {
         awsvpcConfiguration: {
-          subnets: env.ECS_BUILD_SUBNETS.split(",").filter(Boolean),
-          securityGroups: env.ECS_BUILD_SECURITY_GROUPS.split(",").filter(Boolean),
-          assignPublicIp: "DISABLED",
+          subnets: env.ECS_BUILD_TASK_SUBNETS.split(",").filter(Boolean),
+          securityGroups: env.ECS_BUILD_TASK_SECURITY_GROUPS.split(",").filter(Boolean),
+          assignPublicIp: "ENABLED",
         },
       },
       overrides: {

@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { env } from "../env";
 import { logger } from "../lib/logger";
+import { startLogPersistWorker, stopLogPersistWorker } from "../lib/log-persist";
 import { errorHandler } from "./middleware/error";
 import { healthz } from "./routes/healthz";
 import { metricsRoutes } from "./routes/metrics";
@@ -38,3 +39,15 @@ app.route("/webhooks", webhooks);
 const port = env.PORT;
 Bun.serve({ port, fetch: app.fetch });
 logger.info("api-server listening", { port, env: env.NODE_ENV });
+
+// Start background log persistence worker
+startLogPersistWorker().catch((e) => {
+  logger.error("log_persist_worker_failed_to_start", { error: (e as Error).message });
+});
+
+// Graceful shutdown
+process.on("SIGTERM", async () => {
+  logger.info("api-server shutting down");
+  await stopLogPersistWorker();
+  process.exit(0);
+});

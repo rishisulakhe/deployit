@@ -122,7 +122,7 @@ aws sts get-caller-identity
 === AWS Account: 297155701257 ===
 === Region: ap-south-2 ===
 
-=== 1. Creating S3 bucket: vercel-clone-artifacts ===
+=== 1. Creating S3 bucket: deployit-rishi-artifacts ===
 Bucket created.
 
 === 2. Creating ECR repository: vercel-clone/build-agent ===
@@ -150,7 +150,7 @@ Security Group: sg-ccc
 
 Add these to your .env:
 
-  S3_ARTIFACTS_BUCKET="vercel-clone-artifacts"
+  S3_ARTIFACTS_BUCKET="deployit-rishi-artifacts"
   ECS_CLUSTER="vercel-clone"
   ECS_BUILD_TASK_DEFINITION="vercel-clone-build-agent"
   ECS_BUILD_TASK_SUBNETS="subnet-aaa,subnet-bbb"
@@ -181,7 +181,7 @@ NEXTAUTH_SECRET="bjeOoKTmIIMEmTGch06kUpDVt++uG5T+4xFs1lV2grw="
 
 # --- AWS (from setup-aws.sh output) ---
 AWS_REGION="ap-south-2"
-S3_ARTIFACTS_BUCKET="vercel-clone-artifacts"
+S3_ARTIFACTS_BUCKET="deployit-rishi-artifacts"
 ECS_CLUSTER="vercel-clone"
 ECS_BUILD_TASK_DEFINITION="vercel-clone-build-agent"
 ECS_BUILD_TASK_SUBNETS="subnet-aaa,subnet-bbb"
@@ -190,7 +190,7 @@ ECS_BUILD_TASK_SECURITY_GROUPS="sg-ccc"
 
 **Important:** Keep these as-is for AWS mode:
 ```bash
-S3_ARTIFACTS_BUCKET="vercel-clone-artifacts"  # NOT "local"
+S3_ARTIFACTS_BUCKET="deployit-rishi-artifacts"  # NOT "local"
 ECS_BUILD_TASK_SUBNETS="subnet-xxx"           # NOT empty
 EDGE_PROXY_BACKEND_BASE_URL=""                 # empty = serve from S3 directly
 ```
@@ -392,10 +392,10 @@ docker exec vercel-clone-postgres psql -U vercel -d vercel -c "SELECT count(*) F
 
 ```bash
 # S3 Bucket exists
-aws s3 ls s3://vercel-clone-artifacts --region ap-south-2
+aws s3 ls s3://deployit-rishi-artifacts --region ap-south-2
 
 # Check for uploaded artifacts after a build
-aws s3 ls s3://vercel-clone-artifacts/projects/ --recursive --region ap-south-2
+aws s3 ls s3://deployit-rishi-artifacts/projects/ --recursive --region ap-south-2
 
 # ECR Image
 aws ecr describe-images \
@@ -507,7 +507,7 @@ redis-cli LRANGE build_dlq 0 -1
 
 If build-agent logs show "Waiting for S3 upload":
 - Check ECS task has S3 permissions (IAM role)
-- Check bucket exists: `aws s3 ls s3://vercel-clone-artifacts`
+- Check bucket exists: `aws s3 ls s3://deployit-rishi-artifacts`
 
 ### Docker push fails
 
@@ -538,7 +538,7 @@ When done testing, remove AWS resources:
 
 ```bash
 # Delete S3 bucket contents
-aws s3 rm s3://vercel-clone-artifacts --recursive --region ap-south-2
+aws s3 rm s3://deployit-rishi-artifacts --recursive --region ap-south-2
 
 # Delete ECS service/cluster
 aws ecs delete-cluster --cluster vercel-clone --region ap-south-2
