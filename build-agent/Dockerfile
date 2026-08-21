@@ -1,16 +1,23 @@
-# Bun-based build agent image, executed as the ECS Fargate task.
-#
-# The orchestrator spawns a fresh task per build with all build config injected
-# as env vars (see orchestrator/lib/ecs.ts). Env vars include REPO_URL with
-# the user's GitHub token, BRANCH, ROOT_DIR, BUILD_COMMAND, BUILD_DIR,
-# DEPLOYMENT_ID, PROJECT_ID, REDIS_URL, S3_ARTIFACTS_BUCKET, AWS_REGION.
+# Build agent image for ECS Fargate
+# Contains: Bun runtime, Node.js (npm), git, and other build tools
 
 FROM oven/bun:1-debian AS base
 
-# git is required for cloning user repos.
+# Install build tools: git, Node.js (for npm), curl
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git ca-certificates \
+    git \
+    curl \
+    ca-certificates \
+    gnupg \
+    && mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+# Install pnpm and yarn globally (common package managers)
+RUN npm install -g pnpm yarn
 
 WORKDIR /app
 
@@ -20,5 +27,6 @@ RUN bun install --production --frozen-lockfile || bun install --production
 
 COPY . .
 
+# Run as non-root user (bun user exists in base image)
 USER bun
 CMD ["bun", "src/index.ts"]
