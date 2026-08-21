@@ -2,7 +2,6 @@ import { z } from "zod";
 
 // Permissive env: only PORT/REDIS/JWT_SECRET are hard required. Most other
 // values have defaults suitable for local `docker compose up` development.
-// Phase 1+f production fills in the AWS/GitHub/KMS values via Terraform outputs.
 const schema = z.object({
   PORT: z.coerce.number().default(3001),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
@@ -24,8 +23,7 @@ const schema = z.object({
   // this MUST be set to a strong random value.
   JWT_SECRET: z.string().min(16).default("dev-insecure-jwt-secret-change-me"),
 
-  // KMS encryption of user tokens + project env vars. Empty in dev = passthrough.
-  KMS_KEY_ID: z.string().default(""),
+  // AWS credentials (optional — for ECS/S3 integration)
   AWS_REGION: z.string().default("ap-south-2"),
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
