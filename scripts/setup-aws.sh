@@ -86,8 +86,15 @@ else
 fi
 echo ""
 
-# 4. Create IAM task execution role
-echo "=== 4. Creating IAM roles for ECS tasks ==="
+# 4. Create CloudWatch log group for build-agent
+echo "=== 4. Creating CloudWatch Log Group ==="
+LOG_GROUP="/ecs/${ECS_CLUSTER}/build-agent"
+aws logs create-log-group --log-group-name "$LOG_GROUP" --region "$REGION" 2>/dev/null || echo "Log group already exists"
+echo "Log group: $LOG_GROUP"
+echo ""
+
+# 5. Create IAM task execution role
+echo "=== 5. Creating IAM roles for ECS tasks ==="
 TASK_EXEC_ROLE="deployit-rishi-task-exec-role"
 TASK_ROLE="deployit-rishi-task-role"
 
