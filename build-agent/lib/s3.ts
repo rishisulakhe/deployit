@@ -114,13 +114,13 @@ async function uploadS3(opts: {
   let uploaded = 0;
 
   for (const item of collected) {
-    const body = fs.createReadStream(item.filepath);
+    const fileBuffer = await fs.promises.readFile(item.filepath);
     const ContentType = (mimeLookup(item.filepath) as string) || "application/octet-stream";
     await s3!.send(
       new PutObjectCommand({
         Bucket: opts.bucket,
         Key: item.key,
-        Body: body,
+        Body: fileBuffer,
         ContentType,
       }),
     );
