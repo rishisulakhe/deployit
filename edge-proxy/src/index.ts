@@ -4,6 +4,7 @@ import httpProxy from "http-proxy";
 import type { IncomingMessage } from "node:http";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { env } from "../env";
 import { getProjectBySlug, getLatestSuccessfulDeployment, incrementViews } from "../lib/db";
 import { cacheGet, cacheSet } from "../lib/redis";
@@ -12,6 +13,14 @@ import { registerCounter, registerGauge, renderPrometheus } from "../lib/metrics
 
 const app = express();
 const proxy = httpProxy.createProxy({ selfHandleResponse: true });
+
+// S3 client for serving artifacts when no local files exist
+const s3Credentials = env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY
+  ? { accessKeyId: env.AWS_ACCESS_KEY_ID, secretAccessKey: env.AWS_SECRET_ACCESS_KEY }
+  : undefined;
+const s3 = env.S3_ARTIFACTS_BUCKET
+  ? new S3Client({ region: env.AWS_REGION, ...(s3Credentials ? { credentials: s3Credentials } : {}) })
+  : null;
 
 const requests = registerCounter("edge_proxy_requests_total", "Total proxied requests");
 const cacheHits = registerCounter("edge_proxy_cache_hits_total", "Subdomain cache hits");
@@ -122,15 +131,10 @@ app.get("/metrics", (_req, res) =>
     .send(renderPrometheus()),
 );
 
-// ── Static file serving (local mode) ──────────────────────────────────────────
+// ── Static file serving (local + S3) ──────────────────────────────────────────
 
-function serveLocal(req: Request, res: Response, projectId: string, deploymentId: string, basePath: string) {
-  // req.url is the full URL path. basePath is the prefix we stripped (e.g. "/my-slug").
-  // We need the relative path within the deployment's build output directory.
+async function serveArtifact(req: Request, res: Response, projectId: string, deploymentId: string, basePath: string) {
   const fullUrlPath = req.url.split("?")[0] || "/";
-
-  // For subdomain mode, basePath is "" and fullUrlPath starts with "/"
-  // For path mode, basePath is "/slug" and fullUrlPath starts with "/slug/..."
   const relPath = fullUrlPath === "/" || fullUrlPath === ""
     ? "/index.html"
     : fullUrlPath;
@@ -138,8 +142,7 @@ function serveLocal(req: Request, res: Response, projectId: string, deploymentId
   const localDir = path.join(LOCAL_ARTIFACTS_ROOT, "projects", projectId, deploymentId);
   const filePath = path.join(localDir, relPath);
 
-  const readHtml = (fp: string): string => {
-    const html = fs.readFileSync(fp, "utf-8");
+  const readHtml = (html: string): string => {
     return basePath ? rewriteHtmlPaths(html, basePath) : html;
   };
 
@@ -148,30 +151,75 @@ function serveLocal(req: Request, res: Response, projectId: string, deploymentId
     return res.status(403).send("forbidden");
   }
 
-  // If the path is a directory, serve index.html from it.
+  // Try local filesystem first
   try {
     const stat = fs.statSync(filePath);
     if (stat.isDirectory()) {
       const indexFile = path.join(filePath, "index.html");
       if (fs.existsSync(indexFile)) {
         res.setHeader("Content-Type", "text/html; charset=utf-8");
-        return res.send(readHtml(indexFile));
+        return res.send(readHtml(fs.readFileSync(indexFile, "utf-8")));
       }
     } else if (stat.isFile()) {
       if (path.extname(filePath).toLowerCase() === ".html") {
         res.setHeader("Content-Type", "text/html; charset=utf-8");
-        return res.send(readHtml(filePath));
+        return res.send(readHtml(fs.readFileSync(filePath, "utf-8")));
       }
       res.setHeader("Content-Type", guessContentType(filePath));
       return res.send(fs.readFileSync(filePath));
     }
   } catch {
-    // File not found — try SPA fallback (index.html in root)
-    const spaFallback = path.join(localDir, "index.html");
-    if (fs.existsSync(spaFallback)) {
-      res.setHeader("Content-Type", "text/html; charset=utf-8");
-      return res.send(readHtml(spaFallback));
+    // Local file not found, try S3 below
+  }
+
+  // Try S3 if bucket is configured
+  if (s3 && env.S3_ARTIFACTS_BUCKET) {
+    const s3Key = `${env.S3_ARTIFACTS_PREFIX}/${projectId}/${deploymentId}${relPath}`;
+    try {
+      const command = new GetObjectCommand({
+        Bucket: env.S3_ARTIFACTS_BUCKET,
+        Key: s3Key,
+      });
+      const response = await s3.send(command);
+      const body = await response.Body?.transformToByteArray();
+      if (body) {
+        const contentType = guessContentType(relPath);
+        if (relPath.endsWith(".html")) {
+          const html = new TextDecoder().decode(body);
+          res.setHeader("Content-Type", "text/html; charset=utf-8");
+          return res.send(readHtml(html));
+        }
+        res.setHeader("Content-Type", contentType);
+        return res.send(Buffer.from(body));
+      }
+    } catch (s3Err) {
+      // Try SPA fallback from S3
+      if (relPath !== "/index.html") {
+        try {
+          const spaKey = `${env.S3_ARTIFACTS_PREFIX}/${projectId}/${deploymentId}/index.html`;
+          const spaCommand = new GetObjectCommand({
+            Bucket: env.S3_ARTIFACTS_BUCKET,
+            Key: spaKey,
+          });
+          const spaResponse = await s3.send(spaCommand);
+          const spaBody = await spaResponse.Body?.transformToByteArray();
+          if (spaBody) {
+            const html = new TextDecoder().decode(spaBody);
+            res.setHeader("Content-Type", "text/html; charset=utf-8");
+            return res.send(readHtml(html));
+          }
+        } catch {
+          // SPA fallback not found
+        }
+      }
     }
+  }
+
+  // Local SPA fallback
+  const spaFallback = path.join(localDir, "index.html");
+  if (fs.existsSync(spaFallback)) {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    return res.send(readHtml(fs.readFileSync(spaFallback, "utf-8")));
   }
 
   return res.status(404).send("File not found");
@@ -255,7 +303,7 @@ app.use(async (req, res, next) => {
   if (isLocalMode) {
     // Serve from local filesystem.
     activeReqs.dec();
-    return serveLocal(req as Request, res, record.id, deploymentId, basePath);
+    return serveArtifact(req as Request, res, record.id, deploymentId, basePath);
   }
 
   // Proxy to CloudFront/S3.
