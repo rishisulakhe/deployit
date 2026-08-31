@@ -1,14 +1,8 @@
-# Vercel Clone (AWS + Local)
+# DeployIt
 
-A self-hosted, Vercel-style static site hosting platform. Users authenticate
-with GitHub, import a repository, and have it built and served. The build
-backend runs as **ECS Fargate** tasks (AWS mode) or local subprocesses (local mode),
-and artifacts are stored in **S3** or local filesystem.
-
-> Built as a DevOps role interview project, improving on the Azure-based
-> reference project [DeployIt](https://github.com/...) — see
-> [docs/architecture.md](docs/architecture.md#comparison-with-deployit) for
-> a full comparison.
+Deploy your frontend effortlessly.DeployIt is a static site hosting platform where users
+authenticate with GitHub, import repositories, build them on AWS ECS
+Fargate, and serve the generated static artifacts from Amazon S3.
 
 ## Architecture
 
@@ -18,8 +12,8 @@ graph TB
         DASH["Next.js 16 + shadcn UI<br/>:3000"]
     end
 
-    subgraph API["API Layer"]
-        API["api-server<br/>Hono + Prisma<br/>:3001"]
+    subgraph APILayer["API Layer"]
+        APISERVER["api-server..."]
     end
 
     subgraph Pipeline["Build Pipeline"]
@@ -49,71 +43,141 @@ graph TB
     PROXY -->|serve| S3
 ```
 
-## Two Modes
+# Quick Start
 
-| | Local mode | AWS mode |
-|---|---|---|
-| Builds | Subprocess | ECS Fargate |
-| Artifacts | `/tmp/` | S3 bucket |
-| Cost | $0 | ~$1-2/day |
-| Setup | `docker-compose up` | `scripts/setup-aws.sh` |
-
-## Quick Start (Local Mode)
+### 1. Install Dependencies & Setup Environment
 
 ```bash
-# 1. Install dependencies
+# Install root dependencies
 bun install
 
-# 2. Copy env template
+# Configure environment variables
 cp .env.example .env
-# Edit .env — fill in GitHub OAuth values
+# Edit .env and fill in required GitHub OAuth & AWS credentials
 
-# 3. Symlink .env into each service
+# Symlink .env to all individual services
 for svc in api-server orchestrator build-agent edge-proxy dashboard; do
   ln -sf ../.env $svc/.env
 done
+```
 
-# 4. Start backing services
-docker-compose up -d  # postgres + redis + prometheus + grafana
+---
 
-# 5. Setup database
+## Step 2: Run AWS Setup Script
+
+The `scripts/setup-aws.sh` script creates all necessary AWS resources.
+
+```bash
+cd /home/rishisulakhe/projects/vercel
+
+# Make sure you're logged in
+aws sts get-caller-identity
+
+# Run the setup script
+./scripts/setup-aws.sh
+```
+
+**What the script creates:**
+
+| Resource | Purpose | Cost |
+|----------|---------|------|
+| S3 Bucket | Store build artifacts | ~$0.01/GB/month |
+| ECR Repository | Store build-agent Docker image | ~$0.10/GB/month |
+| ECS Cluster | Orchestrate build tasks | $0 (Fargate pay-per-task) |
+| IAM Task Execution Role | Allow ECS to pull images | Free |
+| IAM Task Role | Allow build-agent to write to S3 | Free |
+| ECS Task Definition | Define build-agent container config | Free |
+| CloudWatch Log Group | Store build logs | ~$0.50/GB |
+
+---
+
+## Step 3: Update .env File
+
+Create/update your `.env` file:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and ensure these are set:
+
+```bash
+# --- GitHub OAuth ---
+GITHUB_CLIENT_ID="Ov23liLuiYXJ3T4h87rX"
+GITHUB_CLIENT_SECRET="72c1b2b89c687a1b6ce0c6dcf653d2bd18f927dd"
+NEXT_PUBLIC_GITHUB_CLIENT_ID="Ov23liLuiYXJ3T4h87rX"
+NEXT_PUBLIC_GITHUB_REDIRECT_URI="http://localhost:3000/api/auth/callback/github"
+GITHUB_REDIRECT_URI="http://localhost:3000/api/auth/callback/github"
+NEXTAUTH_SECRET="bjeOoKTmIIMEmTGch06kUpDVt++uG5T+4xFs1lV2grw="
+
+# --- AWS (from setup-aws.sh output) ---
+AWS_REGION="ap-south-2"
+S3_ARTIFACTS_BUCKET="deployit-rishi-artifacts"
+ECS_CLUSTER="vercel-clone"
+ECS_BUILD_TASK_DEFINITION="vercel-clone-build-agent"
+ECS_BUILD_TASK_SUBNETS="subnet-aaa,subnet-bbb"
+ECS_BUILD_TASK_SECURITY_GROUPS="sg-ccc"
+```
+
+**Important:** Keep these as-is for AWS mode:
+```bash
+S3_ARTIFACTS_BUCKET="deployit-rishi-artifacts"  # NOT "local"
+ECS_BUILD_TASK_SUBNETS="subnet-xxx"           # NOT empty
+EDGE_PROXY_BACKEND_BASE_URL=""                 # empty = serve from S3 directly
+```
+
+---
+
+
+
+### 4. Build & Push Build Agent to Amazon ECR
+
+```bash
+# Authenticate Docker with ECR
+aws ecr get-login-password --region "$AWS_REGION" | \
+  docker login --username AWS --password-stdin "$(echo "$ECR_URI" | cut -d/ -f1)"
+
+# Build and push the container image
+cd build-agent
+docker build -t "$ECR_URI:latest" .
+docker push "$ECR_URI:latest"
+cd ..
+```
+
+---
+
+### 5. Start Backing Services & Migrate Database
+
+```bash
+# Start PostgreSQL, Redis, Prometheus, and Grafana
+docker compose up -d
+
+# Generate Prisma client and apply database migrations
 cd api-server
 bunx prisma generate --schema=prisma/schema.prisma
 bunx prisma migrate deploy --schema=prisma/schema.prisma
 cd ..
-
-# 6. Start all services
-bun run dev:api        # :3001
-bun run dev:orch       # :3003
-bun run dev:proxy      # :8000
-bun run dev:dashboard  # :3000
 ```
 
-Open http://localhost:3000 → sign in with GitHub → deploy a project.
+---
 
-Deployed site: http://localhost:8000/`<slug>`/
+### 6. Start Application Services
 
-## AWS Mode Setup
-
-See the complete guide: **[docs/aws-deployment-guide.md](docs/aws-deployment-guide.md)**
-
-### Quick Setup
-
-- AWS CLI configured: `aws configure`
-- Docker installed
-- `jq` installed
-
-### Quick Setup
+Run each command in a separate terminal:
 
 ```bash
-# 1. Create AWS resources (~5 min)
-./scripts/setup-aws.sh
-
-# 2. Update .env with output values
-
-# 3. Build & push Docker image to ECR
-#    See docs/aws-deployment-guide.md for detailed instructions
+bun run dev:api        # API Server:     http://localhost:3001
+bun run dev:orch       # Orchestrator:   http://localhost:3003
+bun run dev:proxy      # Edge Proxy:     http://localhost:8000
+bun run dev:dashboard  # Dashboard:      http://localhost:3000
 ```
+
+---
+
+### 7. Access the Platform
+
+* **Dashboard:** [http://localhost:3000](http://localhost:3000) (Sign in with GitHub and deploy a repository)
+* **Deployed Sites:** `http://localhost:8000/<project-slug>/`
 
 ## Services
 
@@ -136,29 +200,31 @@ See the complete guide: **[docs/aws-deployment-guide.md](docs/aws-deployment-gui
 | [docs/runbooks/secrets.md](docs/runbooks/secrets.md) | GitHub OAuth setup |
 | [docs/runbooks/troubleshooting.md](docs/runbooks/troubleshooting.md) | Common issues |
 
-## Project Phases
 
-| Phase | Description |
-|---|---|
-| 1 | Docker-compose + Bun workspace monorepo |
-| 2 | Backend services (api-server, orchestrator, build-agent, edge-proxy) |
-| 3 | Dashboard (Next.js 16 + shadcn UI) |
-| 4 | Observability (Grafana, Prometheus) |
-| 5 | CI/CD (GitHub Actions) |
-| 6 | Docs + runbooks |
+## Summary
 
-## Key Improvements over DeployIt
+This project provides a Vercel-style deployment workflow with a local
+application control plane and AWS-powered build infrastructure.
 
-| | DeployIt | Vercel Clone |
-|---|---|---|
-| Cloud | Azure (manual) | AWS (simple CLI) |
-| Build agent | Single Docker host | ECS Fargate (serverless) |
-| Build retries | None | 3× with DLQ |
-| Package manager | npm only | Auto-detect pnpm/yarn/npm |
-| Live logs | Polling (5s) | SSE (real-time) |
-| Backend | Bundled in Next.js | Separate Hono api-server |
-| Observability | None | Prometheus + Grafana |
-| CI/CD | Pre-commit hook | GitHub Actions |
+```text
+                  LOCAL
+┌───────────────────────────────────┐
+│ Dashboard                         │
+│    ↓                              │
+│ API ─────→ PostgreSQL             │
+│  │                                │
+│  └────→ Redis → Orchestrator ─────┼──── AWS
+│                                   │      │
+│ Edge Proxy ←───────────────────────┼── S3 │
+└───────────────────────────────────┘      │
+                                           │
+                                    ECS Fargate
+                                           │
+                                      build-agent
+                                           │
+                                      GitHub + ECR
+```
+
 
 ## License
 
