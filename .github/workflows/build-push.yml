@@ -5,7 +5,8 @@
 # Auth uses IAM user access keys stored as GitHub repo secrets:
 #   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY  (user with ECR push perms)
 #
-# ECR repo (created by scripts/setup-aws.sh): deployit-rishi/build-agent
+# ECR repo: builder-service (cluster: builder-cluster-rishiprasad,
+# task def: builder-task, region: ap-south-2)
 
 name: build-push
 
@@ -22,7 +23,7 @@ permissions:
 
 env:
   AWS_REGION: ap-south-2
-  ECR_REPOSITORY: deployit-rishi/build-agent
+  ECR_REPOSITORY: builder-service
 
 jobs:
   build:
