@@ -1,16 +1,11 @@
-# Build + push each service image to ECR on merge to main.
-# Uses AWS OIDC for keyless auth. Each service gets its own job so they build
-# in parallel.
+# Build + push the build-agent image to ECR on every push to main.
+# The build-agent is the only service that runs as a container (ECS Fargate);
+# api-server, orchestrator, edge-proxy and dashboard run locally.
 #
-# Required GitHub secrets:
-#   AWS_ROLE_TO_ASSUME — IAM role with ECR push permissions (OIDC trust)
+# Auth uses IAM user access keys stored as GitHub repo secrets:
+#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY  (user with ECR push perms)
 #
-# The ECR repos are created by the Terraform `ecr` module:
-#   vercel-clone-dev/api-server
-#   vercel-clone-dev/orchestrator
-#   vercel-clone-dev/build-agent
-#   vercel-clone-dev/edge-proxy
-#   vercel-clone-dev/dashboard
+# ECR repo (created by scripts/setup-aws.sh): deployit-rishi/build-agent
 
 name: build-push
 
@@ -23,56 +18,44 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  id-token: write
   contents: read
+
+env:
+  AWS_REGION: ap-south-2
+  ECR_REPOSITORY: deployit-rishi/build-agent
 
 jobs:
   build:
-    name: Build & Push ${{ matrix.service }}
+    name: Build & Push build-agent
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        service: [api-server, orchestrator, build-agent, edge-proxy, dashboard]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure AWS credentials (OIDC)
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          aws-region: ap-south-2
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get AWS account ID
+        id: account
+        run: echo "id=$(aws sts get-caller-identity --query Account --output text)" >> $GITHUB_OUTPUT
 
       - name: Login to ECR
         uses: aws-actions/amazon-ecr-login@v2
         with:
           mask-password: "true"
 
-      - name: Determine image tag
-        id: tag
-        run: echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
-
-      # --- Bun-based services (api-server, orchestrator, build-agent, edge-proxy) ---
-      - name: Build ${{ matrix.service }} (Bun)
-        if: matrix.service != 'dashboard'
-        working-directory: ${{ matrix.service }}
+      - name: Build build-agent image
+        working-directory: build-agent
         run: |
           docker build \
-            -t $AWS_ACCOUNT_ID.dkr.ecr.ap-south-2.amazonaws.com/vercel-clone-dev/${{ matrix.service }}:${{ steps.tag.outputs.tag }} \
-            -t $AWS_ACCOUNT_ID.dkr.ecr.ap-south-2.amazonaws.com/vercel-clone-dev/${{ matrix.service }}:latest \
+            -t ${{ steps.account.outputs.id }}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${{ github.sha }} \
+            -t ${{ steps.account.outputs.id }}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:latest \
             .
 
-      # --- Next.js dashboard (standalone output) ---
-      - name: Build dashboard (Next.js)
-        if: matrix.service == 'dashboard'
-        working-directory: dashboard
+      - name: Push build-agent image
         run: |
-          docker build \
-            -t $AWS_ACCOUNT_ID.dkr.ecr.ap-south-2.amazonaws.com/vercel-clone-dev/dashboard:${{ steps.tag.outputs.tag }} \
-            -t $AWS_ACCOUNT_ID.dkr.ecr.ap-south-2.amazonaws.com/vercel-clone-dev/dashboard:latest \
-            .
-
-      - name: Push ${{ matrix.service }}
-        run: |
-          docker push $AWS_ACCOUNT_ID.dkr.ecr.ap-south-2.amazonaws.com/vercel-clone-dev/${{ matrix.service }}:${{ steps.tag.outputs.tag }}
-          docker push $AWS_ACCOUNT_ID.dkr.ecr.ap-south-2.amazonaws.com/vercel-clone-dev/${{ matrix.service }}:latest
+          docker push ${{ steps.account.outputs.id }}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:${{ github.sha }}
+          docker push ${{ steps.account.outputs.id }}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}:latest
